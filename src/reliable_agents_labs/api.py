@@ -12,7 +12,7 @@ from fastapi import Depends, FastAPI
 from pydantic import BaseModel
 
 from reliable_agents_labs.models import ModelClient, build_model_client
-from reliable_agents_labs.reorder_agent import ask_reorder_agent_with_tools
+from reliable_agents_labs.observability import ask_reorder_agent_traced
 
 app = FastAPI(title="Reorder Agent API")
 
@@ -36,5 +36,5 @@ async def health() -> dict[str, str]:
 
 @app.post("/ask", response_model=AskResponse)
 async def ask(request: AskRequest, client: ModelClient = Depends(get_model_client)) -> AskResponse:
-    answer = await ask_reorder_agent_with_tools(request.question, client=client)
+    answer = await ask_reorder_agent_traced(request.question, client=client)
     return AskResponse(answer=answer)

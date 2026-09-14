@@ -1,15 +1,25 @@
-# Stub. Real services get added chapter by chapter, each with an explicitly
+# Real services get added chapter by chapter, each with an explicitly
 # pinned image version decided at the point that chapter needs it (never
 # `latest`, see book-playbook/working-agreements.md's reproducibility
 # contract):
 #
-#   - Project 1, ch. 9 "Containerize It": the app service itself, plus the
-#     Langfuse hosting decision (self-hosted vs. cloud).
+#   - Project 1, ch. 9 "Containerize It": the app service itself, below.
 #   - Project 2, ch. 12 "A Real Vector Database": qdrant/qdrant, pinned.
 #   - Project 3, ch. 18 "Graph Fundamentals": neo4j, pinned.
 #
-# Intentionally empty of services until those decisions are made, rather
-# than guessing versions now and having them go stale before the chapter
-# that actually uses them is written.
+# Langfuse is deliberately NOT a service in this file. It is self-hosted
+# (chapter 9's decision), but as a separately maintained stack in
+# langfuse/docker-compose.yml, Langfuse's own reference deployment, run
+# on its own. Folding six services you do not maintain into your own
+# project's compose file would make every Langfuse version bump this
+# project's problem to track by hand; pointing at it over the network
+# (LANGFUSE_HOST, LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, in .env) keeps
+# the boundary where it actually is.
 
-services: {}
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
