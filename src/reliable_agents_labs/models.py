@@ -216,3 +216,62 @@ def build_model_client(role: str, config_path: str = "config/models.yaml") -> Mo
     if provider == "anthropic":
         return AnthropicClient(model_id=model_id)
     raise ValueError(f"Unknown provider {provider!r} for role {role!r}")
+
+
+class EmbeddingClient(Protocol):
+    """A second, smaller seam, chapter 11: turning text into a vector is a
+    genuinely different operation from generating a reply, not a variant
+    of `ModelClient.generate`, so it gets its own Protocol instead of a
+    bolted-on method. Same reasons as `ModelClient`: a scripted fake for
+    orchestration tests, config-driven provider choice.
+    """
+
+    async def embed(self, text: str) -> list[float]: ...
+
+
+class GeminiEmbeddingClient:
+    """Default embedding adapter: Gemini's `gemini-embedding-001`, over
+    the same OpenAI-compatible endpoint `GeminiOpenAICompatibleClient`
+    uses for chat, just a different API surface (`embeddings.create`,
+    not `chat.completions.create`).
+    """
+
+    def __init__(self, model_id: str | None = None) -> None:
+        from openai import AsyncOpenAI  # local import: keep the seam thin
+
+        api_key = os.environ.get("GEMINI_API_KEY")
+        if not api_key:
+            raise RuntimeError(
+                "GEMINI_API_KEY is not set. Copy .env.example to .env and fill it in."
+            )
+        self._client = AsyncOpenAI(
+            api_key=api_key,
+            base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+        )
+        self._model_id = model_id or "gemini-embedding-001"
+
+    async def embed(self, text: str) -> list[float]:
+        response = await self._client.embeddings.create(model=self._model_id, input=text)
+        return response.data[0].embedding
+
+
+def build_embedding_client(
+    role: str = "embedding_model", config_path: str = "config/models.yaml"
+) -> EmbeddingClient:
+    """The embedding-side equivalent of `build_model_client`. Only Gemini
+    is implemented, Anthropic has no embedding API of its own to switch
+    to, that is a real, current limitation of Anthropic's alternative
+    path in this book, not an oversight.
+    """
+    import yaml
+
+    with open(config_path, encoding="utf-8") as f:
+        config = yaml.safe_load(f)
+
+    role_config = config[role]
+    provider = role_config["provider"]
+    model_id = role_config.get("model_id")
+
+    if provider == "gemini":
+        return GeminiEmbeddingClient(model_id=model_id)
+    raise ValueError(f"Unknown embedding provider {provider!r} for role {role!r}")
