@@ -57,4 +57,11 @@ async def search_packages(
     response = await client.query_points(
         collection_name=collection_name, query=query_vector, limit=limit
     )
-    return [{"name": point.payload["name"], "score": point.score} for point in response.points]
+    return [
+        {
+            "name": point.payload["name"],
+            "summary": point.payload.get("summary", ""),
+            "score": point.score,
+        }
+        for point in response.points
+    ]

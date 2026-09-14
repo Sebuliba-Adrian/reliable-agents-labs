@@ -12,6 +12,7 @@ import json
 from pydantic import BaseModel
 
 from reliable_agents_labs.inventory import check_inventory
+from reliable_agents_labs.json_parsing import parse_json_object
 from reliable_agents_labs.models import ModelClient, build_model_client
 
 SYSTEM_PROMPT = (
@@ -61,20 +62,6 @@ STRUCTURED_SYSTEM_PROMPT = (
 )
 
 
-def _parse_json_object(text: str) -> dict:
-    """Models occasionally wrap JSON in markdown fences even when told not
-    to. Strip those defensively before parsing, rather than letting a
-    cosmetic wrapper turn into a hard failure.
-    """
-    text = text.strip()
-    if text.startswith("```"):
-        text = text.strip("`")
-        if text.lower().startswith("json"):
-            text = text[4:]
-        text = text.strip()
-    return json.loads(text)
-
-
 async def ask_reorder_agent_structured(
     question: str, client: ModelClient | None = None
 ) -> ReorderAnswer:
@@ -90,7 +77,7 @@ async def ask_reorder_agent_structured(
     if client is None:
         client = build_model_client("answer_model")
     result = await client.generate(system=STRUCTURED_SYSTEM_PROMPT, user=question)
-    payload = _parse_json_object(result.text)
+    payload = parse_json_object(result.text)
     return ReorderAnswer.model_validate(payload)
 
 
