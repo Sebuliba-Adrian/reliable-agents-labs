@@ -1,0 +1,15 @@
+# Stub. Real services get added chapter by chapter, each with an explicitly
+# pinned image version decided at the point that chapter needs it (never
+# `latest`, see book-playbook/working-agreements.md's reproducibility
+# contract):
+#
+#   - Project 1, ch. 9 "Containerize It": the app service itself, plus the
+#     Langfuse hosting decision (self-hosted vs. cloud).
+#   - Project 2, ch. 12 "A Real Vector Database": qdrant/qdrant, pinned.
+#   - Project 3, ch. 18 "Graph Fundamentals": neo4j, pinned.
+#
+# Intentionally empty of services until those decisions are made, rather
+# than guessing versions now and having them go stale before the chapter
+# that actually uses them is written.
+
+services: {}

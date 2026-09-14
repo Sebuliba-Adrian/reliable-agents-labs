@@ -1,0 +1,18 @@
+# Model IDs live here, not hardcoded in source or scattered through the
+# book's prose (see book-playbook/working-agreements.md's reproducibility
+# contract). Change a model here, not in six different code samples.
+#
+# "gemini" is the default provider throughout the book, chosen because a
+# live key is available to smoke-test every example. "anthropic" is a real,
+# working alternative, switch a role to it here, no code changes needed.
+
+answer_model:
+  provider: gemini
+  model_id: gemini-2.5-flash
+  # Anthropic alternative:
+  # provider: anthropic
+  # model_id: claude-sonnet-5
+
+embedding_model:
+  provider: gemini
+  model_id: gemini-embedding-001

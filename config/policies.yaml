@@ -1,0 +1,5 @@
+# Policy thresholds referenced by the reorder agent's approval-boundary
+# logic (Project 4, "Human in the Loop"). Empty for now: Project 1 doesn't
+# need policy checks yet (it only reads stock levels, no spending
+# decisions). Filled in when Project 4's chapters actually build the
+# approval workflow, not guessed at now.
