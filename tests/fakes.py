@@ -15,5 +15,12 @@ class ScriptedModelClient:
     def __init__(self, scripted_results: list[ModelResult]) -> None:
         self._results = iter(scripted_results)
 
-    async def generate(self, *, system: str, user: str) -> ModelResult:
+    async def generate(
+        self,
+        *,
+        system: str,
+        user: str,
+        tools: list[dict] | None = None,
+        history: list[dict] | None = None,
+    ) -> ModelResult:
         return next(self._results)

@@ -11,6 +11,7 @@ import json
 
 from pydantic import BaseModel
 
+from reliable_agents_labs.inventory import check_inventory
 from reliable_agents_labs.models import ModelClient, build_model_client
 
 SYSTEM_PROMPT = (
@@ -91,3 +92,76 @@ async def ask_reorder_agent_structured(
     result = await client.generate(system=STRUCTURED_SYSTEM_PROMPT, user=question)
     payload = _parse_json_object(result.text)
     return ReorderAnswer.model_validate(payload)
+
+
+CHECK_INVENTORY_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "check_inventory",
+        "description": "Look up the current quantity on hand for one exact SKU.",
+        "parameters": {
+            "type": "object",
+            "properties": {"sku": {"type": "string", "description": "The SKU to look up."}},
+            "required": ["sku"],
+        },
+    },
+}
+
+TOOL_SYSTEM_PROMPT = (
+    "You are a warehouse assistant for a small parts distributor. Use the "
+    "check_inventory tool whenever a question needs a specific SKU's "
+    "actual stock level. Never invent a quantity yourself."
+)
+
+
+async def ask_reorder_agent_with_tools(question: str, client: ModelClient | None = None) -> str:
+    """Chapter 6's version: instead of admitting it cannot check real
+    data (chapter 4) or returning a typed refusal (chapter 5), the agent
+    can now call `check_inventory` and answer with the real number.
+
+    This is a two-turn round trip: the first `generate()` call may come
+    back asking for a tool, this function runs that tool for real, then
+    a second `generate()` call hands the tool's result back so the model
+    can write a final answer grounded in it. If the model does not ask
+    for a tool at all (a general-knowledge question, say), the first
+    call's text is the whole answer and there is no second turn.
+    """
+    if client is None:
+        client = build_model_client("answer_model")
+    result = await client.generate(
+        system=TOOL_SYSTEM_PROMPT, user=question, tools=[CHECK_INVENTORY_TOOL]
+    )
+    if not result.tool_calls:
+        return result.text
+
+    call = result.tool_calls[0]
+    if call.name != "check_inventory":
+        raise ValueError(f"Unexpected tool call: {call.name!r}")
+
+    record = check_inventory(call.arguments["sku"])
+    tool_output = (
+        record.model_dump_json()
+        if record is not None
+        else json.dumps({"error": f"no inventory record for {call.arguments['sku']!r}"})
+    )
+    # Replay the provider's own raw tool-call dict rather than rebuilding
+    # one by hand. Gemini attaches an opaque thought_signature to each
+    # tool call that must come back unchanged, or the next call fails,
+    # see models.ToolCall's docstring. `raw` is None only for a scripted
+    # test double that never set it.
+    assistant_tool_call = call.raw or {
+        "id": call.id,
+        "type": "function",
+        "function": {"name": call.name, "arguments": json.dumps(call.arguments)},
+    }
+    history = [
+        {"role": "assistant", "content": None, "tool_calls": [assistant_tool_call]},
+        {"role": "tool", "tool_call_id": call.id, "content": tool_output},
+    ]
+    final = await client.generate(
+        system=TOOL_SYSTEM_PROMPT,
+        user=question,
+        tools=[CHECK_INVENTORY_TOOL],
+        history=history,
+    )
+    return final.text

@@ -21,20 +21,43 @@ avoiding framework/vendor churn).
 
 from __future__ import annotations
 
+import json
 import os
 from typing import Protocol
 
 from pydantic import BaseModel
 
 
+class ToolCall(BaseModel):
+    """One tool the model asked to run, before any code has run it.
+
+    `raw` carries the provider's own tool-call dict, exactly as the SDK
+    returned it, in addition to the three fields above. Gemini attaches
+    an opaque `thought_signature` to each tool call that must be echoed
+    back unchanged when the conversation continues, or the next call
+    fails; `raw` is what makes that replay possible without `models.py`
+    or calling code needing to know that field exists by name. Callers
+    that never continue a tool-calling conversation can ignore it.
+    """
+
+    id: str
+    name: str
+    arguments: dict
+    raw: dict | None = None
+
+
 class ModelResult(BaseModel):
-    """What every adapter returns, regardless of provider."""
+    """What every adapter returns, regardless of provider. `tool_calls` is
+    empty for a plain text reply, and non-empty when the model wants a
+    tool run before it will give a final answer (chapter 6).
+    """
 
     text: str
     input_tokens: int
     output_tokens: int
     model_id: str
     provider: str
+    tool_calls: list[ToolCall] = []
 
 
 class ModelClient(Protocol):
@@ -42,9 +65,27 @@ class ModelClient(Protocol):
     a third, `ScriptedModelClient` in tests/, implements it for deterministic
     orchestration tests. Application code only ever depends on this Protocol,
     never on a concrete provider SDK directly.
+
+    `tools` and `history` only matter from chapter 6 onward. `history` is
+    deliberately provider-native (a list of raw message dicts in whatever
+    shape that provider's own API expects, OpenAI-style for the Gemini
+    adapter), not a third abstraction this book invents on top of two
+    already-different real ones. Hiding that difference behind a clean
+    interface is exactly what a framework like LangChain is for; this seam
+    stays thin on purpose (see the module docstring), so calling code that
+    uses `history` is calling code for one specific provider, not portable
+    across both adapters without changes. Project 4's LangGraph work is
+    where a real abstraction over this becomes worth building.
     """
 
-    async def generate(self, *, system: str, user: str) -> ModelResult: ...
+    async def generate(
+        self,
+        *,
+        system: str,
+        user: str,
+        tools: list[dict] | None = None,
+        history: list[dict] | None = None,
+    ) -> ModelResult: ...
 
 
 class GeminiOpenAICompatibleClient:
@@ -67,22 +108,44 @@ class GeminiOpenAICompatibleClient:
         )
         self._model_id = model_id or os.environ.get("GEMINI_MODEL_ID", "gemini-3.6-flash")
 
-    async def generate(self, *, system: str, user: str) -> ModelResult:
+    async def generate(
+        self,
+        *,
+        system: str,
+        user: str,
+        tools: list[dict] | None = None,
+        history: list[dict] | None = None,
+    ) -> ModelResult:
+        messages = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ]
+        if history:
+            messages.extend(history)
+        kwargs = {"tools": tools} if tools else {}
         response = await self._client.chat.completions.create(
             model=self._model_id,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
+            messages=messages,
+            **kwargs,
         )
         choice = response.choices[0]
         usage = response.usage
+        tool_calls = [
+            ToolCall(
+                id=tc.id,
+                name=tc.function.name,
+                arguments=json.loads(tc.function.arguments),
+                raw=tc.model_dump(),
+            )
+            for tc in (choice.message.tool_calls or [])
+        ]
         return ModelResult(
             text=choice.message.content or "",
             input_tokens=usage.prompt_tokens if usage else 0,
             output_tokens=usage.completion_tokens if usage else 0,
             model_id=self._model_id,
             provider="gemini",
+            tool_calls=tool_calls,
         )
 
 
@@ -103,7 +166,21 @@ class AnthropicClient:
         self._client = AsyncAnthropic(api_key=api_key)
         self._model_id = model_id or os.environ.get("ANTHROPIC_MODEL_ID", "claude-sonnet-5")
 
-    async def generate(self, *, system: str, user: str) -> ModelResult:
+    async def generate(
+        self,
+        *,
+        system: str,
+        user: str,
+        tools: list[dict] | None = None,
+        history: list[dict] | None = None,
+    ) -> ModelResult:
+        if tools or history:
+            raise NotImplementedError(
+                "AnthropicClient does not implement tool calling yet. "
+                "Chapter 6 only wires it up for the default Gemini adapter, "
+                "Anthropic's tool schema is shaped differently and is left "
+                "as this chapter's exercise."
+            )
         response = await self._client.messages.create(
             model=self._model_id,
             max_tokens=4096,
