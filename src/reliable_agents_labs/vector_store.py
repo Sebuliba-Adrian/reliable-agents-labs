@@ -34,7 +34,7 @@ async def ensure_collection(
 
 async def upsert_package(
     client: AsyncQdrantClient,
-    package_id: int,
+    package_id: int | str,
     name: str,
     summary: str,
     vector: list[float],
