@@ -51,6 +51,19 @@ async def test_unexpected_tool_name_raises():
         await ask_reorder_agent_with_tools("Anything", client=fake)
 
 
+async def test_missing_sku_argument_raises():
+    """Chapter 8's exercise: nothing stops a model from calling the right
+    tool with the wrong argument shape. This is a distinct failure mode
+    from `test_unexpected_tool_name_raises`, the tool name is correct
+    this time, the payload is not.
+    """
+    fake = ScriptedModelClient(
+        [_result(tool_calls=[ToolCall(id="call_1", name="check_inventory", arguments={})])]
+    )
+    with pytest.raises(ValueError, match="missing required argument 'sku'"):
+        await ask_reorder_agent_with_tools("How many units are in stock?", client=fake)
+
+
 async def test_unknown_sku_gets_final_answer():
     """The tool itself can come back empty, chapter 6's exercise: this is
     a distinct failure mode from `ask_reorder_agent_structured`'s parse

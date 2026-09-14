@@ -137,6 +137,11 @@ async def ask_reorder_agent_with_tools(question: str, client: ModelClient | None
     call = result.tool_calls[0]
     if call.name != "check_inventory":
         raise ValueError(f"Unexpected tool call: {call.name!r}")
+    if "sku" not in call.arguments:
+        raise ValueError(
+            f"check_inventory call is missing required argument 'sku', "
+            f"got arguments: {call.arguments!r}"
+        )
 
     record = check_inventory(call.arguments["sku"])
     tool_output = (
