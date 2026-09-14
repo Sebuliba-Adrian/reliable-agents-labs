@@ -1,26 +1,10 @@
 """Tier 2: agent orchestration tests, against a scripted/fake model, never
-a real one. The fake exists to make control flow deterministic, not to
-simulate intelligence, keep it deliberately boring.
+a real one. See tests/fakes.py for the shared ScriptedModelClient.
 """
 
 from reliable_agents_labs.models import ModelResult
 from reliable_agents_labs.orchestration import run_once
-
-
-class ScriptedModelClient:
-    """A deterministic stand-in for any real ModelClient adapter. Feed it a
-    list of canned ModelResults; each call to generate() returns the next
-    one. Reused across every orchestration test in this book, real chapters
-    will feed it richer scripted sequences (e.g. "ask for a tool, then
-    answer") as the reorder agent gains tool-calling and stateful workflow
-    behavior.
-    """
-
-    def __init__(self, scripted_results: list[ModelResult]) -> None:
-        self._results = iter(scripted_results)
-
-    async def generate(self, *, system: str, user: str) -> ModelResult:
-        return next(self._results)
+from tests.fakes import ScriptedModelClient
 
 
 async def test_run_once_returns_the_scripted_text():
