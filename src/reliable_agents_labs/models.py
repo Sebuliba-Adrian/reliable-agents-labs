@@ -65,7 +65,7 @@ class GeminiOpenAICompatibleClient:
             api_key=api_key,
             base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
         )
-        self._model_id = model_id or os.environ.get("GEMINI_MODEL_ID", "gemini-2.5-flash")
+        self._model_id = model_id or os.environ.get("GEMINI_MODEL_ID", "gemini-3.6-flash")
 
     async def generate(self, *, system: str, user: str) -> ModelResult:
         response = await self._client.chat.completions.create(

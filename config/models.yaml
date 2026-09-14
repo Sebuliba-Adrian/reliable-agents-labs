@@ -8,7 +8,7 @@
 
 answer_model:
   provider: gemini
-  model_id: gemini-2.5-flash
+  model_id: gemini-3.6-flash
   # Anthropic alternative:
   # provider: anthropic
   # model_id: claude-sonnet-5
