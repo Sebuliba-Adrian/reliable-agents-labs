@@ -19,13 +19,15 @@ def build_qdrant_client(url: str = "http://localhost:6333") -> AsyncQdrantClient
     return AsyncQdrantClient(url=url)
 
 
-async def ensure_collection(client: AsyncQdrantClient) -> None:
+async def ensure_collection(
+    client: AsyncQdrantClient, collection_name: str = COLLECTION_NAME
+) -> None:
     """Idempotent on purpose, chapter 14's whole subject. Safe to call
     every time the app starts, not just once by hand.
     """
-    if not await client.collection_exists(COLLECTION_NAME):
+    if not await client.collection_exists(collection_name):
         await client.create_collection(
-            collection_name=COLLECTION_NAME,
+            collection_name=collection_name,
             vectors_config=VectorParams(size=VECTOR_SIZE, distance=Distance.COSINE),
         )
 
