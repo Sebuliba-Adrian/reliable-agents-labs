@@ -52,16 +52,18 @@ async def ingest_package(
     client: AsyncQdrantClient,
     embedder: EmbeddingClient,
     collection_name: str = COLLECTION_NAME,
-) -> bool:
-    """Fetch, embed, and store one package. Returns `False` instead of
-    raising when the package cannot be fetched, chapter 13's own
-    exercise: a package that no longer exists, or was never real,
-    should not stop the whole pipeline over one bad name.
+) -> str | None:
+    """Fetch, embed, and store one package. Returns the package's real,
+    PyPI-canonical name on success (which is not always the same string
+    as `name`, see chapter 16), or `None` instead of raising when the
+    package cannot be fetched, chapter 13's own exercise: a package that
+    no longer exists, or was never real, should not stop the whole
+    pipeline over one bad name.
     """
     try:
         meta = await fetch_package_metadata(name)
     except httpx.HTTPStatusError:
-        return False
+        return None
     vector = await embedder.embed(meta.summary)
     await upsert_package(
         client,
@@ -71,7 +73,7 @@ async def ingest_package(
         vector=vector,
         collection_name=collection_name,
     )
-    return True
+    return meta.name
 
 
 async def ingest_all(
@@ -84,13 +86,20 @@ async def ingest_all(
     by default, continuing past any individual failure. Returns a
     summary rather than raising, so a caller can decide what "mostly
     succeeded" should mean for their own use case.
+
+    `succeeded` holds each package's real, canonical name, exactly what
+    got stored, not the raw input string, see chapter 16 for why that
+    distinction matters.
     """
     await ensure_collection(client, collection_name=collection_name)
     succeeded = []
     failed = []
     for name in names:
-        if await ingest_package(name, client, embedder, collection_name=collection_name):
-            succeeded.append(name)
+        canonical_name = await ingest_package(
+            name, client, embedder, collection_name=collection_name
+        )
+        if canonical_name is not None:
+            succeeded.append(canonical_name)
         else:
             failed.append(name)
     return {"succeeded": succeeded, "failed": failed}
@@ -139,5 +148,12 @@ async def sync_packages(
     before."
     """
     result = await ingest_all(names, client, embedder, collection_name=collection_name)
-    result["pruned"] = await prune_stale(names, client, collection_name=collection_name)
+    # Prune against the *canonical* names actually stored, not the raw
+    # input list. A dependency spelled differently than PyPI's own
+    # canonical form (chapter 16: "pyyaml" vs. the real "PyYAML") would
+    # otherwise compute a "keep" id that never matches what ingest_all
+    # just stored, and prune_stale would delete it on every single sync.
+    result["pruned"] = await prune_stale(
+        result["succeeded"], client, collection_name=collection_name
+    )
     return result
