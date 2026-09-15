@@ -15,3 +15,7 @@ wheels/
 # Local secrets, never commit
 .env
 
+# Chapter 25: local checkpoint databases, never real data to commit
+*.sqlite
+*.sqlite-journal
+

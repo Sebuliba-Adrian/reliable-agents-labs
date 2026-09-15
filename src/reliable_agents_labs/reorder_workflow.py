@@ -7,6 +7,7 @@ LangGraph needs to know about, it's one more thing a node can do.
 
 from typing import TypedDict
 
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.graph import END, START, StateGraph
 
 from reliable_agents_labs.agent_loop import run_tool_loop
@@ -14,6 +15,18 @@ from reliable_agents_labs.inventory import run_check_inventory_tool
 from reliable_agents_labs.json_parsing import parse_json_object
 from reliable_agents_labs.models import ModelClient, build_model_client
 from reliable_agents_labs.reorder_agent import CHECK_INVENTORY_TOOL, TOOL_SYSTEM_PROMPT
+
+DEFAULT_CHECKPOINT_DB = "reorder_checkpoints.sqlite"
+
+
+def build_checkpointer(path: str = DEFAULT_CHECKPOINT_DB):
+    """Chapter 25: a real, durable checkpointer, one real file on disk
+    instead of the process's own memory. Returns an async context
+    manager, `async with build_checkpointer() as saver:`, the exact
+    shape `AsyncSqliteSaver.from_conn_string` already has.
+    """
+    return AsyncSqliteSaver.from_conn_string(path)
+
 
 DECISION_SYSTEM_PROMPT = (
     "You will be given an assistant's answer to an inventory question. "
@@ -50,10 +63,14 @@ def _route_on_answer(state: ReorderWorkflowState) -> str:
     return "log_reorder" if state["reorder"] else "skip"
 
 
-def build_reorder_workflow(model_client: ModelClient | None = None):
+def build_reorder_workflow(model_client: ModelClient | None = None, checkpointer=None):
     """Two nodes, one conditional edge. `ask_agent` wraps chapter 22's
     `run_tool_loop`, a closure over `model_client` since a node function
     only ever receives the graph's own state, never extra arguments.
+
+    `checkpointer` is optional and defaults to `None`, an uncompiled-
+    with-persistence graph, the exact shape chapter 24 already tested.
+    Chapter 25 passes a real one.
     """
     model_client = model_client or build_model_client("answer_model")
 
@@ -81,4 +98,4 @@ def build_reorder_workflow(model_client: ModelClient | None = None):
         "ask_agent", _route_on_answer, {"log_reorder": "log_reorder", "skip": END}
     )
     builder.add_edge("log_reorder", END)
-    return builder.compile()
+    return builder.compile(checkpointer=checkpointer)
