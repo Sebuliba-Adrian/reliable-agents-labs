@@ -26,6 +26,33 @@ class ScriptedModelClient:
         return next(self._results)
 
 
+class FlakyModelClient:
+    """Chapter 27: raises `error` on the first `fail_times` calls, then
+    delegates to a real scripted response. Stands in for a provider
+    having a real, transient bad moment before recovering, exactly what
+    `RetryingModelClient` exists to survive.
+    """
+
+    def __init__(self, error: Exception, fail_times: int, result: ModelResult) -> None:
+        self._error = error
+        self._fail_times = fail_times
+        self._result = result
+        self.calls = 0
+
+    async def generate(
+        self,
+        *,
+        system: str,
+        user: str,
+        tools: list[dict] | None = None,
+        history: list[dict] | None = None,
+    ) -> ModelResult:
+        self.calls += 1
+        if self.calls <= self._fail_times:
+            raise self._error
+        return self._result
+
+
 class ScriptedEmbeddingClient:
     """A deterministic stand-in for any real EmbeddingClient adapter.
     Chapter 15's orchestration tests care about what `ask_rag_agent` does
