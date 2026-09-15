@@ -7,6 +7,8 @@ lives, a database-backed version would teach the exact same lesson with
 more setup in the way.
 """
 
+import json
+
 from pydantic import BaseModel
 
 
@@ -32,3 +34,16 @@ def check_inventory(sku: str) -> InventoryRecord | None:
     must handle that, not assume every SKU the model asks about is real.
     """
     return _INVENTORY.get(sku)
+
+
+def run_check_inventory_tool(arguments: dict) -> str:
+    """Chapter 22: wraps `check_inventory` as a `run_tool_loop`-shaped
+    tool function, one argument dict in, one JSON string out, the same
+    serialization chapter 6's `ask_reorder_agent_with_tools` builds by
+    hand for its own single hardcoded call.
+    """
+    sku = arguments["sku"]
+    record = check_inventory(sku)
+    if record is None:
+        return json.dumps({"error": f"no inventory record for {sku!r}"})
+    return record.model_dump_json()
