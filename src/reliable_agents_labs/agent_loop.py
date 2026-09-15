@@ -13,7 +13,7 @@ silently, no exception at all.
 import json
 from collections.abc import Callable
 
-from reliable_agents_labs.models import ModelClient
+from reliable_agents_labs.models import ModelClient, ModelResult
 
 
 class ToolLoopDidNotConverge(RuntimeError):
@@ -42,6 +42,7 @@ async def run_tool_loop(
     tool_fns: dict[str, Callable[[dict], str]],
     system: str,
     max_iterations: int = 5,
+    on_result: Callable[[ModelResult], None] | None = None,
 ) -> str:
     """A real loop: keep calling the model and running every tool call it
     asks for, in the same turn or a later one, until it returns text
@@ -54,10 +55,18 @@ async def run_tool_loop(
     them followed by one tool-result message per call, the shape every
     OpenAI-compatible provider, including Gemini's compatibility layer,
     expects back.
+
+    `on_result` is optional and defaults to `None`, no behavior change
+    for any existing caller. Chapter 31 passes one to see every real
+    `ModelResult` this loop makes, not just the final answer text this
+    function has only ever returned, real per-call token counts a
+    multi-turn task would otherwise discard.
     """
     history: list[dict] = []
     for _ in range(max_iterations):
         result = await client.generate(system=system, user=question, tools=tools, history=history)
+        if on_result is not None:
+            on_result(result)
         if not result.tool_calls:
             return result.text
 
