@@ -8,7 +8,15 @@
 #     digest, the real digest v1.19.1 resolved to when this was written:
 #       docker pull qdrant/qdrant:v1.19.1
 #       docker inspect qdrant/qdrant:v1.19.1 --format='{{index .RepoDigests 0}}'
-#   - Project 3, ch. 18 "Graph Fundamentals": neo4j, pinned.
+#   - Project 3, ch. 18 "Graph Fundamentals": neo4j, below. Pinned to
+#     the 5.26 LTS line deliberately, not the newer calendar-versioned
+#     (YYYY.MM) release train Neo4j switched new releases to in
+#     January 2025: LTS gets a three-year support window of critical
+#     patches with no breaking changes, a better fit for a
+#     production-minded book than a fast-moving monthly line. Real
+#     digest resolved when this was written:
+#       docker pull neo4j:5.26-community
+#       docker inspect neo4j:5.26-community --format='{{index .RepoDigests 0}}'
 #
 # Langfuse is deliberately NOT a service in this file. It is self-hosted
 # (chapter 9's decision), but as a separately maintained stack in
@@ -34,5 +42,19 @@ services:
     volumes:
       - qdrant_data:/qdrant/storage
 
+  neo4j:
+    image: neo4j@sha256:22ec5cd05a8cbb372fc4bed5e384c30bc75fd92504c72be4462039761b105f61
+    environment:
+      NEO4J_AUTH: neo4j/reliable-agents-labs
+    ports:
+      # Host-side remapped, same reason chapter 9 remapped Langfuse's
+      # port 3000: this machine already has another project's Neo4j
+      # bound to the standard 7474/7687.
+      - "7475:7474"
+      - "7688:7687"
+    volumes:
+      - neo4j_data:/data
+
 volumes:
   qdrant_data:
+  neo4j_data:
