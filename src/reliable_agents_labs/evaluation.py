@@ -34,6 +34,18 @@ GOLDEN_DATASET: list[GoldenExample] = [
     GoldenExample("What package handles Kubernetes deployments?", None),
 ]
 
+# Chapter 21: the same question chapter 17 could only answer with an
+# honest refusal. Scored against `ask_graph_rag_agent`, not the plain
+# `ask_rag_agent` this dataset was originally written for, see
+# `evaluate_example`'s `ask_fn` parameter.
+STRUCTURAL_GOLDEN_DATASET: list[GoldenExample] = [
+    GoldenExample(
+        "If pydantic had a breaking change, which of my other packages would be affected?",
+        "fastapi",
+    ),
+    GoldenExample("What package handles Kubernetes deployments?", None),
+]
+
 
 @dataclass
 class EvalResult:
@@ -52,13 +64,28 @@ class EvalResult:
     retrieval_hit: bool | None = None
 
 
-async def evaluate_example(example: GoldenExample, **kwargs) -> EvalResult:
+async def evaluate_example(example: GoldenExample, ask_fn=ask_rag_agent, **kwargs) -> EvalResult:
+    """`ask_fn` defaults to chapter 15's plain vector-only agent, the one
+    this dataset and this function were both written against. Chapter 21
+    passes `ask_graph_rag_agent` instead, same scoring logic, a different
+    agent doing the retrieving.
+    """
     retrieved_names: list[str] = []
 
     def _capture_retrieval(results: list[dict]) -> None:
-        retrieved_names.extend(r["name"] for r in results)
+        # `hybrid_search` (chapter 20) puts a package name in front of
+        # the model two ways: as a top-level result, or nested in
+        # another result's own `dependents`, per `build_hybrid_context`.
+        # A retrieval check that only reads `name` would call this a
+        # miss even when the model could see the package right there in
+        # its own context, a real gap this evaluation itself found live
+        # the first time it ran against `ask_graph_rag_agent`, not a
+        # hypothetical.
+        for r in results:
+            retrieved_names.append(r["name"])
+            retrieved_names.extend(r.get("dependents", []))
 
-    answer = await ask_rag_agent(example.question, on_retrieval=_capture_retrieval, **kwargs)
+    answer = await ask_fn(example.question, on_retrieval=_capture_retrieval, **kwargs)
     if example.expected_citation is None:
         passed = answer.cited_packages == []
         retrieval_hit = None
@@ -76,9 +103,9 @@ async def evaluate_example(example: GoldenExample, **kwargs) -> EvalResult:
 
 
 async def run_evaluation(
-    dataset: list[GoldenExample] = GOLDEN_DATASET, **kwargs
+    dataset: list[GoldenExample] = GOLDEN_DATASET, ask_fn=ask_rag_agent, **kwargs
 ) -> list[EvalResult]:
-    return [await evaluate_example(example, **kwargs) for example in dataset]
+    return [await evaluate_example(example, ask_fn=ask_fn, **kwargs) for example in dataset]
 
 
 def pass_rate(results: list[EvalResult]) -> float:

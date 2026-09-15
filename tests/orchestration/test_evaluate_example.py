@@ -7,6 +7,7 @@ independent of what the model cited.
 
 from reliable_agents_labs.evaluation import GoldenExample, evaluate_example
 from reliable_agents_labs.models import ModelResult
+from reliable_agents_labs.rag_agent import RagAnswer
 from tests.fakes import (
     FakeScoredPoint,
     ScriptedEmbeddingClient,
@@ -86,4 +87,26 @@ async def test_retrieval_hit_is_none_when_no_citation_is_expected():
     )
 
     assert result.retrieval_hit is None
+    assert result.passed is True
+
+
+async def test_retrieval_hit_true_when_the_expected_package_is_only_a_dependent():
+    """A real bug this evaluation found the first time it ran live
+    against ask_graph_rag_agent: hybrid_search (chapter 20) can surface
+    a package as another result's `dependents`, not just as a
+    top-level result of its own, and build_hybrid_context puts that
+    dependent in the model's context either way. A retrieval check
+    that only reads `name` would call this a miss even though the
+    model genuinely had the package in front of it.
+    """
+    example = GoldenExample("if pydantic had a breaking change, what would break?", "fastapi")
+
+    async def ask_fn(question: str, on_retrieval=None, **kwargs) -> RagAnswer:
+        if on_retrieval is not None:
+            on_retrieval([{"name": "pydantic", "dependents": ["fastapi", "langfuse"]}])
+        return RagAnswer(answer="scripted", cited_packages=["fastapi"])
+
+    result = await evaluate_example(example, ask_fn=ask_fn)
+
+    assert result.retrieval_hit is True
     assert result.passed is True
