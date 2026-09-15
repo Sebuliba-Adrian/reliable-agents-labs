@@ -70,3 +70,49 @@ class ScriptedQdrantClient:
         response = _Response()
         response.points = self._points
         return response
+
+
+class _FakeGraphResult:
+    """Just enough shape to stand in for neo4j's real async Result:
+    `find_dependents` only ever does `record["name"] async for record
+    in result`.
+    """
+
+    def __init__(self, names: list[str]) -> None:
+        self._names = names
+
+    def __aiter__(self):
+        return self._iter()
+
+    async def _iter(self):
+        for name in self._names:
+            yield {"name": name}
+
+
+class _FakeGraphSession:
+    def __init__(self, dependents_by_target: dict[str, list[str]]) -> None:
+        self._dependents_by_target = dependents_by_target
+
+    async def run(self, _query: str, **params):
+        return _FakeGraphResult(self._dependents_by_target.get(params.get("target"), []))
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_exc) -> bool:
+        return False
+
+
+class ScriptedGraphDriver:
+    """A deterministic stand-in for neo4j's AsyncDriver, implementing only
+    `.session()`, the one method `find_dependents` calls. Chapter 20's
+    orchestration tests exercise `hybrid_search`'s own logic, real graph
+    traversal is chapter 18-19's job, already verified against a real
+    Neo4j there.
+    """
+
+    def __init__(self, dependents_by_target: dict[str, list[str]] | None = None) -> None:
+        self._dependents_by_target = dependents_by_target or {}
+
+    def session(self) -> _FakeGraphSession:
+        return _FakeGraphSession(self._dependents_by_target)
