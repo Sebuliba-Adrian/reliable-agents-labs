@@ -11,6 +11,7 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 
+from langfuse import observe
 from reliable_agents_labs.agent_loop import run_tool_loop
 from reliable_agents_labs.evaluation import judge_faithfulness
 from reliable_agents_labs.inventory import run_check_inventory_tool
@@ -63,6 +64,7 @@ class ReorderWorkflowState(TypedDict):
     feedback: str
 
 
+@observe(name="log_reorder")
 def log_reorder(state: ReorderWorkflowState) -> dict:
     REORDER_LOG.append(f"{state['question']!r} -> {state['answer']!r}")
     return {"logged": True}
@@ -83,6 +85,7 @@ def _build_ask_agent_node(model_client: ModelClient):
     can reuse it unchanged rather than duplicating it.
     """
 
+    @observe(name="ask_agent")
     async def ask_agent(state: ReorderWorkflowState) -> dict:
         question = state["question"]
         # On a retry, `feedback` carries the judge's own reasoning for
@@ -135,6 +138,7 @@ def _build_evaluate_answer_node(model_client: ModelClient):
     decision was for.
     """
 
+    @observe(name="evaluate_answer")
     async def evaluate_answer(state: ReorderWorkflowState) -> dict:
         verdict = await judge_faithfulness(
             question=state["question"],
@@ -204,6 +208,7 @@ class ApprovalWorkflowState(TypedDict):
     logged: bool
 
 
+@observe(name="await_approval")
 def await_approval(state: ApprovalWorkflowState) -> dict:
     """Chapter 26: a real pause point. `interrupt()` stops this node
     exactly where it's called, persists everything needed to resume

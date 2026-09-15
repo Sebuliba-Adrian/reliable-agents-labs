@@ -35,3 +35,26 @@ async def ask_reorder_agent_traced(question: str, client: ModelClient | None = N
     """
     get_client().update_current_span(input=question)
     return await ask_reorder_agent_with_tools(question, client=client)
+
+
+@observe(name="reorder_workflow")
+async def run_reorder_workflow_traced(graph, initial_state, config: dict) -> dict:
+    """Chapter 28: wraps a compiled workflow graph's own `ainvoke`, one
+    root span per real run. `ask_agent` and `log_reorder`, inside
+    `reorder_workflow.py`, are `@observe`d too, so this one traced call
+    produces a real nested trace: the graph's own node structure, not a
+    flat list, without needing LangChain's own callback system at all.
+    A LangGraph node is just a function; the exact decorator chapter 9
+    already used works on it unchanged.
+
+    `initial_state` is a plain dict on a first call, but a real resume
+    call passes a `Command` instead (chapter 26), which has no
+    `question` key at all. A first version of this function called
+    `.get("question")` unconditionally and crashed on exactly that
+    real resume call, caught live before this ever reached print.
+    """
+    question = None
+    if isinstance(initial_state, dict):
+        question = initial_state.get("question")
+    get_client().update_current_span(input={"question": question})
+    return await graph.ainvoke(initial_state, config)
