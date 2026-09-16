@@ -9,8 +9,9 @@ mechanism is FastAPI-specific, the reason for it is not.
 """
 
 import asyncio
+import os
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from reliable_agents_labs.models import ModelClient, build_model_client
@@ -30,9 +31,22 @@ MAX_QUESTION_LENGTH = 2000
 # wait the full 3 seconds with no upper bound at all.
 REQUEST_TIMEOUT_SECONDS = 30
 
+# Chapter 30's third real gap: /ask never checked who was calling it.
+# A shared key is not real identity or per-user permissions, just the
+# smallest real step from "anyone" to "anyone holding the one key this
+# deployment issued." `None` by default is deliberate: a deployment
+# that forgets to set this fails closed, rejecting every caller,
+# rather than silently accepting all of them.
+API_KEY = os.environ.get("API_KEY")
+
 
 def get_model_client() -> ModelClient:
     return build_model_client("answer_model")
+
+
+def require_api_key(x_api_key: str | None = Header(default=None)) -> None:
+    if not API_KEY or x_api_key != API_KEY:
+        raise HTTPException(status_code=401, detail="missing or invalid API key")
 
 
 class AskRequest(BaseModel):
@@ -48,7 +62,7 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.post("/ask", response_model=AskResponse)
+@app.post("/ask", response_model=AskResponse, dependencies=[Depends(require_api_key)])
 async def ask(request: AskRequest, client: ModelClient = Depends(get_model_client)) -> AskResponse:
     try:
         answer = await asyncio.wait_for(
