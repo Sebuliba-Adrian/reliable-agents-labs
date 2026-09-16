@@ -1,5 +1,7 @@
 # reliable-agents-labs
 
+<img src="cover.png" alt="Building Reliable AI Agents cover" width="220" align="right">
+
 Companion code for *Building Reliable AI Agents* (Book 2 of the "Production AI Agent Engineering" series). Every chapter in the book has a matching git tag here, real, tested, runnable code, not illustrative snippets.
 
 Two real systems get built, escalating from a single tool call to a full stateful, observed, evaluated production system:
@@ -10,7 +12,7 @@ Two real systems get built, escalating from a single tool call to a full statefu
 ## Quickstart
 
 ```bash
-git clone <this-repo>
+git clone https://github.com/Sebuliba-Adrian/reliable-agents-labs.git
 cd reliable-agents-labs
 cp .env.example .env   # fill in GEMINI_API_KEY at minimum
 uv sync --locked
