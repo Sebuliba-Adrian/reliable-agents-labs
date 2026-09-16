@@ -12,10 +12,16 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 
 from reliable_agents_labs.agent_loop import run_tool_loop
+from reliable_agents_labs.evaluation import judge_faithfulness
 from reliable_agents_labs.inventory import run_check_inventory_tool
 from reliable_agents_labs.json_parsing import parse_json_object
 from reliable_agents_labs.models import ModelClient, build_model_client
 from reliable_agents_labs.reorder_agent import CHECK_INVENTORY_TOOL, TOOL_SYSTEM_PROMPT
+
+# A real, explicit budget, same discipline as chapter 22's max_iterations
+# and this chapter's own max_attempts: too low cuts off a real correction,
+# too high turns one bad answer into an unbounded loop of model calls.
+MAX_CORRECTION_ATTEMPTS = 2
 
 DEFAULT_CHECKPOINT_DB = "reorder_checkpoints.sqlite"
 
@@ -47,6 +53,14 @@ class ReorderWorkflowState(TypedDict):
     answer: str
     reorder: bool
     logged: bool
+    # This chapter's own extension: the agent checks its own answer
+    # before the graph routes on it. `tool_context` is what the tool
+    # actually returned, `attempts` and `feedback` carry the
+    # self-correction loop forward across a retry.
+    tool_context: str
+    attempts: int
+    faithful: bool
+    feedback: str
 
 
 def log_reorder(state: ReorderWorkflowState) -> dict:
@@ -70,11 +84,31 @@ def _build_ask_agent_node(model_client: ModelClient):
     """
 
     async def ask_agent(state: ReorderWorkflowState) -> dict:
+        question = state["question"]
+        # On a retry, `feedback` carries the judge's own reasoning for
+        # why the last answer was rejected, appended to the same
+        # question rather than starting over blind. Absent on a first
+        # attempt, and for `build_approval_workflow`'s state, which
+        # never sets it at all.
+        if state.get("feedback"):
+            question = (
+                f"{question}\n\nYour previous answer was rejected for this "
+                f"reason: {state['feedback']}. Check the real tool output "
+                f"again and answer only with what it actually says."
+            )
+
+        tool_outputs: list[str] = []
+
+        def _capturing_check_inventory(arguments: dict) -> str:
+            output = run_check_inventory_tool(arguments)
+            tool_outputs.append(output)
+            return output
+
         answer = await run_tool_loop(
-            state["question"],
+            question,
             model_client,
             tools=[CHECK_INVENTORY_TOOL],
-            tool_fns={"check_inventory": run_check_inventory_tool},
+            tool_fns={"check_inventory": _capturing_check_inventory},
             system=TOOL_SYSTEM_PROMPT,
         )
         # The free-text answer above is for a human to read, never for
@@ -83,15 +117,60 @@ def _build_ask_agent_node(model_client: ModelClient):
         # chapter 5's own lesson: never keyword-sniff a prose answer.
         decision_result = await model_client.generate(system=DECISION_SYSTEM_PROMPT, user=answer)
         decision = parse_json_object(decision_result.text)
-        return {"answer": answer, "reorder": decision["reorder"]}
+        return {
+            "answer": answer,
+            "reorder": decision["reorder"],
+            "tool_context": "\n".join(tool_outputs),
+        }
 
     return ask_agent
 
 
+def _build_evaluate_answer_node(model_client: ModelClient):
+    """The same `judge_faithfulness` chapter 16 built for a RAG agent's
+    answer against its own retrieved context, reused unchanged here for
+    a tool-calling agent's answer against its own tool output.
+    `judge_faithfulness` never needed to know which agent produced
+    `context` and `answer`, this is exactly the case that design
+    decision was for.
+    """
+
+    async def evaluate_answer(state: ReorderWorkflowState) -> dict:
+        verdict = await judge_faithfulness(
+            question=state["question"],
+            context=state["tool_context"],
+            answer=state["answer"],
+            model_client=model_client,
+        )
+        return {
+            "faithful": verdict.faithful,
+            "feedback": verdict.reasoning,
+            "attempts": state.get("attempts", 0) + 1,
+        }
+
+    return evaluate_answer
+
+
+def _route_after_evaluation(state: ReorderWorkflowState) -> str:
+    """A conditional edge that can route back to a node already visited,
+    not just forward to a new one, chapter 23 and 24's own conditional
+    edges never needed to. An unfaithful answer retries `ask_agent`
+    with the judge's own feedback, bounded by `MAX_CORRECTION_ATTEMPTS`
+    the same way chapter 22's `max_iterations` bounds a tool loop that
+    never converges: a real, explicit budget, not an unbounded retry.
+    """
+    if not state["faithful"] and state["attempts"] < MAX_CORRECTION_ATTEMPTS:
+        return "retry"
+    return "log_reorder" if state["reorder"] else "skip"
+
+
 def build_reorder_workflow(model_client: ModelClient | None = None, checkpointer=None):
-    """Two nodes, one conditional edge. `ask_agent` wraps chapter 22's
-    `run_tool_loop`, a closure over `model_client` since a node function
-    only ever receives the graph's own state, never extra arguments.
+    """`ask_agent` wraps chapter 22's `run_tool_loop`, a closure over
+    `model_client` since a node function only ever receives the graph's
+    own state, never extra arguments. `evaluate_answer` sits between
+    `ask_agent` and the routing chapter 24 already had: an unfaithful
+    answer loops back to `ask_agent` instead of reaching `log_reorder`
+    or `END` at all.
 
     `checkpointer` is optional and defaults to `None`, an uncompiled-
     with-persistence graph, the exact shape chapter 24 already tested.
@@ -99,13 +178,18 @@ def build_reorder_workflow(model_client: ModelClient | None = None, checkpointer
     """
     model_client = model_client or build_model_client("answer_model")
     ask_agent = _build_ask_agent_node(model_client)
+    evaluate_answer = _build_evaluate_answer_node(model_client)
 
     builder = StateGraph(ReorderWorkflowState)
     builder.add_node("ask_agent", ask_agent)
+    builder.add_node("evaluate_answer", evaluate_answer)
     builder.add_node("log_reorder", log_reorder)
     builder.add_edge(START, "ask_agent")
+    builder.add_edge("ask_agent", "evaluate_answer")
     builder.add_conditional_edges(
-        "ask_agent", _route_on_answer, {"log_reorder": "log_reorder", "skip": END}
+        "evaluate_answer",
+        _route_after_evaluation,
+        {"retry": "ask_agent", "log_reorder": "log_reorder", "skip": END},
     )
     builder.add_edge("log_reorder", END)
     return builder.compile(checkpointer=checkpointer)

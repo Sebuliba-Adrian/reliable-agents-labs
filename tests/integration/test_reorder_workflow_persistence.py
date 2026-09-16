@@ -27,7 +27,11 @@ async def test_state_survives_a_fresh_checkpointer_connection_to_the_same_file(t
 
     async with AsyncSqliteSaver.from_conn_string(db_path) as saver:
         model = ScriptedModelClient(
-            [_text_result("SKU-1029 is low, reorder it."), _text_result('{"reorder": true}')]
+            [
+                _text_result("SKU-1029 is low, reorder it."),
+                _text_result('{"reorder": true}'),
+                _text_result('{"faithful": true, "reasoning": "matches the tool output"}'),
+            ]
         )
         graph = build_reorder_workflow(model_client=model, checkpointer=saver)
         await graph.ainvoke(_EMPTY_STATE, config)
