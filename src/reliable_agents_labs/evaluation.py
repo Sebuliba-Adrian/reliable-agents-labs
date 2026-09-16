@@ -7,6 +7,10 @@ a threshold, not asserted pass/fail question by question.
 
 from dataclasses import dataclass, field
 
+from pydantic import BaseModel
+
+from reliable_agents_labs.json_parsing import parse_json_object
+from reliable_agents_labs.models import ModelClient
 from reliable_agents_labs.rag_agent import ask_rag_agent
 
 
@@ -90,3 +94,44 @@ def retrieval_recall(results: list[EvalResult]) -> float:
     """
     scored = [r for r in results if r.retrieval_hit is not None]
     return sum(r.retrieval_hit for r in scored) / len(scored)
+
+
+JUDGE_SYSTEM_PROMPT = (
+    "You are a strict faithfulness judge. You will be given a question, "
+    "a context, and an answer that claims to be grounded in that "
+    "context. Decide whether every factual claim the answer makes is "
+    "actually supported by the context. An answer that adds a claim the "
+    "context never made is not faithful, even if that claim happens to "
+    "be true in the real world, and an answer that contradicts the "
+    "context is not faithful either. Respond with a single JSON object, "
+    "no markdown fences, no commentary: "
+    '{"faithful": true or false, "reasoning": "one sentence explaining '
+    'your verdict"}.'
+)
+
+
+class JudgeResult(BaseModel):
+    faithful: bool
+    reasoning: str
+
+
+async def judge_faithfulness(
+    question: str, context: str, answer: str, model_client: ModelClient
+) -> JudgeResult:
+    """`evaluate_example` above only scores a question this book already
+    wrote a `GoldenExample` for, a known question with a known-correct
+    citation. Production traffic asks questions nobody anticipated,
+    there is no golden answer to check against. A second model call,
+    scoring the first model's answer against the same context it was
+    given rather than against a pre-written expectation, works on any
+    question, known or not.
+
+    `context` and `answer` are passed in directly rather than produced by
+    calling an agent internally, so this works against `ask_rag_agent`,
+    `ask_graph_rag_agent`, or any future agent's output, without this
+    function needing to know which one produced them.
+    """
+    user_prompt = f"Question: {question}\n\nContext:\n{context}\n\nAnswer: {answer}"
+    result = await model_client.generate(system=JUDGE_SYSTEM_PROMPT, user=user_prompt)
+    payload = parse_json_object(result.text)
+    return JudgeResult.model_validate(payload)
