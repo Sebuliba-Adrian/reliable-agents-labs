@@ -51,3 +51,23 @@ async def test_insufficient_context_leaves_citations_empty():
 
     assert "does not cover" in result.answer
     assert result.cited_packages == []
+
+
+async def test_on_retrieval_sees_the_raw_results_before_they_become_prompt_text():
+    qdrant = ScriptedQdrantClient([FakeScoredPoint("httpx", 0.8), FakeScoredPoint("requests", 0.6)])
+    embedder = ScriptedEmbeddingClient()
+    model = ScriptedModelClient(
+        [_model_result('{"answer": "httpx is an HTTP client.", "cited_packages": ["httpx"]}')]
+    )
+    seen = []
+
+    await ask_rag_agent(
+        "what handles HTTP requests?",
+        qdrant=qdrant,
+        embedder=embedder,
+        model_client=model,
+        on_retrieval=seen.append,
+    )
+
+    assert len(seen) == 1
+    assert [r["name"] for r in seen[0]] == ["httpx", "requests"]

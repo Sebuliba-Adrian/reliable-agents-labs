@@ -51,6 +51,7 @@ async def ask_rag_agent(
     embedder: EmbeddingClient | None = None,
     model_client: ModelClient | None = None,
     limit: int = 3,
+    on_retrieval=None,
 ) -> RagAnswer:
     """Embed the question, retrieve the closest packages, put exactly
     that retrieved text in the prompt, then ask for a cited answer.
@@ -61,6 +62,12 @@ async def ask_rag_agent(
     Each dependency defaults to the real, config-driven one, same reason
     as every agent function since chapter 4: a test hands this scripted
     or fake versions of all three instead, and never touches the network.
+
+    `on_retrieval`, defaulting to `None`, sees the raw retrieved results
+    before they are flattened into prompt text: the final `RagAnswer`
+    only ever carries what the model chose to cite, not what retrieval
+    actually found, and telling a retrieval miss apart from a
+    generation miss needs both.
     """
     qdrant = qdrant or build_qdrant_client()
     embedder = embedder or build_embedding_client()
@@ -68,6 +75,8 @@ async def ask_rag_agent(
 
     query_vector = await embedder.embed(question)
     results = await search_packages(qdrant, query_vector, limit=limit)
+    if on_retrieval is not None:
+        on_retrieval(results)
     context = _build_context(results)
 
     user_prompt = f"Package information:\n{context}\n\nQuestion: {question}"
