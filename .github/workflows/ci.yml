@@ -17,6 +17,11 @@ on:
 jobs:
   fast-tests:
     runs-on: ubuntu-latest
+    env:
+      # These tiers never call the model, but some code paths read the key when
+      # they build a client, so a placeholder keeps them independent of any
+      # developer's real key.
+      GEMINI_API_KEY: ci-placeholder-never-sent
     steps:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v6
